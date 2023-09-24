@@ -45,10 +45,12 @@ static std::unordered_map<int, std::function<void(YYTKCodeEvent* pCodeEvent, CIn
 static const char* playStr = "Play Modded!";
 RefString tempVar = RefString(playStr, strlen(playStr), false);
 static bool versionTextChanged = false;
+static bool charSelectEntered = false;
 
 // This callback is registered on EVT_PRESENT and EVT_ENDSCENE, so it gets called every frame on DX9 / DX11 games.
 YYTKStatus FrameCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 	FrameNumber++;
+	if (charSelectEntered == true) PrintMessage(CLR_BRIGHTPURPLE, "Frame: %d", FrameNumber);
 	// Tell the core the handler was successful.
 	return YYTK_OK;
 }
@@ -116,25 +118,30 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Create_0") == 0) {
 			auto CharSelect_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
-
+				charSelectEntered = true;
 				YYRValue yyrv_characterData;
 				CallBuiltin(yyrv_characterData, "variable_global_get", Self, Other, { "characterData" });
+				PrintMessage(CLR_AQUA, "[%s:%d] variable_global_get : characterData", GetFileName(__FILE__).c_str(), __LINE__);
 				YYRValue yyrv_random;
 				CallBuiltin(yyrv_random, "ds_map_find_value", Self, Other, { yyrv_characterData, "random" });
+				PrintMessage(CLR_AQUA, "[%s:%d] ds_map_find_value : yyrv_characterData, \"random\"", GetFileName(__FILE__).c_str(), __LINE__);
 
 				YYRValue yyrv_charListByGen;
 				CallBuiltin(yyrv_charListByGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "charListByGen" });
+				PrintMessage(CLR_AQUA, "[%s:%d] variable_instance_get : charListByGen", GetFileName(__FILE__).c_str(), __LINE__);
 
 				YYRValue yyrv_lastGenIndex;
 				yyrv_lastGenIndex.Kind = VALUE_REAL;
 				yyrv_lastGenIndex.Real = yyrv_charListByGen.RefArray->length - 1;
 				YYRValue yyrv_lastGenCharList;
 				CallBuiltin(yyrv_lastGenCharList, "array_get", Self, Other, { yyrv_charListByGen, yyrv_lastGenIndex });
+				PrintMessage(CLR_AQUA, "[%s:%d] array_get : yyrv_charListByGen, yyrv_lastGenIndex", GetFileName(__FILE__).c_str(), __LINE__);
 
 				YYRValue yyrv_result;
 				CallBuiltin(yyrv_result, "array_push", Self, Other, { yyrv_lastGenCharList, yyrv_random });
+				PrintMessage(CLR_TANGERINE, "[%s:%d] array_push : yyrv_lastGenCharList, yyrv_random", GetFileName(__FILE__).c_str(), __LINE__);
 
-				YYRValue yyrv_lastCharIndex;
+				/*YYRValue yyrv_lastCharIndex;
 				yyrv_lastCharIndex.Kind = VALUE_REAL;
 				yyrv_lastCharIndex.Real = yyrv_lastGenCharList.RefArray->length - 1;
 				YYRValue yyrv_lastGenChar;
@@ -142,7 +149,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 
 				YYRValue yyrv_id;
 				CallBuiltin(yyrv_id, "struct_get", Self, Other, { yyrv_lastGenChar, "id" });
-				PrintMessage(CLR_BRIGHTPURPLE, "yyrv_id = %s", yyrv_id.String->Get()); 
+				PrintMessage(CLR_BRIGHTPURPLE, "yyrv_id = %s", yyrv_id.String->Get());*/
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
