@@ -24,17 +24,20 @@ static struct Mod {
 // Config vars
 static struct Config {
 	bool debugEnabled = false;
+	std::vector<std::string> blacklist = {};
 } config;
 
 void to_json(json& j, const Config& c) {
 	j = json{
-		{ "debugEnabled", c.debugEnabled }
+		{ "debugEnabled", c.debugEnabled },
+		{ "blacklist", c.blacklist }
 	};
 }
 
 void from_json(const json& j, Config& c) {
 	try {
 		j.at("debugEnabled").get_to(c.debugEnabled);
+		j.at("blacklist").get_to(c.blacklist);
 	} catch (const json::out_of_range& e) {
 		PrintError(__FILE__, __LINE__, "%s", e.what());
 		std::string fileName = formatString(std::string(mod.name)) + "-config.json";
@@ -142,6 +145,10 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 					versionTextChanged = true;
 				}
 
+				for (int i = 0; i < config.blacklist.size(); i++) {
+					if (config.debugEnabled) PrintMessage(CLR_BRIGHTPURPLE, "blacklist[%d] = %s", i, config.blacklist[i].c_str());
+				}
+
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 			};
 			TitleScreen_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
@@ -208,6 +215,49 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				YYRValue yyrv_result;
 				CallBuiltin(yyrv_result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "randomSelectSlot", yyrv_randomSelectSlotIndex });
 				if (config.debugEnabled) PrintMessage(CLR_TANGERINE, "[%s:%d] variable_instance_set : \"randomSelectSlot\", yyrv_randomSelectSlotIndex", GetFileName(__FILE__).c_str(), __LINE__);
+
+				if (config.blacklist.size() > 0) {
+					// Get character list
+					YYRValue yyrv_characterList;
+					CallBuiltin(yyrv_characterList, "variable_global_get", Self, Other, { "characterList" });
+					std::vector<std::string> characterList;
+					for (int i = 0; i < yyrv_characterList.RefArray->length; i++) {
+						characterList.push_back(std::string(yyrv_characterList.RefArray->m_Array[i].String->Get()));
+					}
+
+					// Find which numbers to remove
+					std::vector<int> indexesToRemove;
+					for (int i = 0; i < config.blacklist.size(); i++) {
+						auto it = std::find(characterList.begin(), characterList.end(), config.blacklist[i]);
+
+						if (it != characterList.end()) {
+							int index = std::distance(characterList.begin(), it);
+							indexesToRemove.push_back(index);
+							if (config.debugEnabled) PrintMessage(CLR_BRIGHTPURPLE, "\"%s\" found at %d", config.blacklist[i], index);
+						} else {
+							PrintError(__FILE__, __LINE__, "\"%s\" not found!", config.blacklist[i]);
+						}
+					}
+
+					// Get random available characters array
+					YYRValue yyrv_randomCharArray;
+					CallBuiltin(yyrv_randomCharArray, "variable_instance_get", Self, Other, { (long long)Self->i_id, "randomAvailableCharacters" });
+
+					// Construct new random available characters array
+					size_t newSize = yyrv_randomCharArray.RefArray->length - indexesToRemove.size();
+					RValue* yyrv_newRandCharArray = new RValue[newSize];
+					int currIndex = 0;
+					for (int i = 0; i < yyrv_randomCharArray.RefArray->length; i++) {
+						int target = static_cast<int>(yyrv_randomCharArray.RefArray->m_Array[i].Real);
+						auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), target);
+						if (it == indexesToRemove.end()) {
+							yyrv_newRandCharArray[currIndex] = yyrv_randomCharArray.RefArray->m_Array[i];
+							currIndex++;
+						}
+					}
+					yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
+					yyrv_randomCharArray.RefArray->length = newSize;
+				}
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;

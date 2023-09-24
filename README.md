@@ -28,6 +28,27 @@ Not much testing at all has gone into this, so I'm really sorry if this doesn't 
 
 Feel free to join the [HoloCure Discord server](https://discord.gg/holocure) and look for the HoloCure Code Discussion thread in #holocure-general!
 
+# Blacklist Format
+The blacklist works off of internal character IDs, so you'll need to use a specific name for each.
+
+The config variable format is a string array, like `"blacklist": ["sana", "roboco", "aki"]`.
+
+| Character Name   | ID     | Character Name    | ID      | Character Name   | ID    |
+|------------------|--------|-------------------|---------|------------------|-------|
+| Amelia Watson    | ame    | Nekomata Okayu    | okayu   | Murasaki Shion   | shion |
+| Gawr Gura        | gura   | Inugami Korone    | korone  | Nakiri Ayame     | ayame |
+| Ninomae Ina'nis  | ina    | Tokino Sora       | sora    | Minato Aqua      | aqua  |
+| Takanashi Kiara  | kiara  | AZKi              | azki    | Moona Hoshinova  | moona |
+| Calliope Mori    | calli  | Roboco-san        | roboco  | Ayunda Risu      | risu  |
+| Hakos Baelz      | bae    | Hoshimachi Suisei | suisei  | Airani Iofifteen | iofi  |
+| Ouro Kronii      | kronii | Sakura Miko       | miko    | Kureiji Ollie    | ollie |
+| Ceres Fauna      | fauna  | Akai Haato        | haato   | Pavolia Reine    | reine |
+| Nanashi Mumei    | mumei  | Yozora Mel        | mel     | Anya Melfissa    | anya  |
+| Tsukumo Sana     | sana   | Natsuiro Matsuri  | matsuri | Kobo Kanaeru     | kobo  |
+| IRyS             | irys   | Aki Rosenthal     | aki     | Kaela Kovalskia  | kaela |
+| Shirakami Fubuki | fubuki | Oozora Subaru     | subaru  | Vestia Zeta      | zeta  |
+| Ookami Mio       | mio    | Yuzuki Choco      | choco   |                  |       |
+
 # Troubleshooting
 
 Here are some common problems you could have that are preventing your mod from not working correctly:
