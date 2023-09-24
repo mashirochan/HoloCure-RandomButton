@@ -1,7 +1,7 @@
 # HoloCure Random Button Mod
 A HoloCure mod that adds back the random character button!
 
-![Example Screenshot](https://i.imgur.com/BTZAxEp.png)
+![Example Screenshot](https://i.imgur.com/V68jq4v.gif)
 
 # Installation
 
