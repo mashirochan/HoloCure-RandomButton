@@ -456,6 +456,10 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 	}
 
 	// Function hooks
+	GetFunctionByName("asset_get_index", assetGetIndexFunc);
+	MH_Initialize();
+	MmGetScriptData(scriptList);
+	
 	PrintMessage(CLR_BRIGHTPURPLE, "Hooking gml_Script_Up_gml_Object_obj_CharSelect_Create_0...");
 	HookScriptFunction("gml_Script_Up_gml_Object_obj_CharSelect_Create_0", (void*)&UpCharSelectFuncDetour, (void**)&origUpCharSelectScript);
 	PrintMessage(CLR_BRIGHTPURPLE, "gml_Script_Up_gml_Object_obj_CharSelect_Create_0 hooked!");
