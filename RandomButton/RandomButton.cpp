@@ -21,7 +21,7 @@ static struct Mod {
 	const char* name = MOD_NAME;
 } mod;
 
-// Config vars
+// Config variables
 static struct Config {
 	bool debugEnabled = false;
 	std::vector<std::string> blacklist = {};
@@ -102,6 +102,9 @@ static std::unordered_map<int, std::function<void(YYTKCodeEvent* pCodeEvent, CIn
 static const char* playStr = "Play Modded!";
 RefString tempVar = RefString(playStr, strlen(playStr), false);
 static bool versionTextChanged = false;
+
+// Blacklist menu variables
+static bool blacklistSelected = false;
 
 // This callback is registered on EVT_PRESENT and EVT_ENDSCENE, so it gets called every frame on DX9 / DX11 games.
 YYTKStatus FrameCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
@@ -261,6 +264,20 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
+		}
+		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {
+			auto CharSelect_Draw_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
+				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
+				YYRValue yyrv_result;
+				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
+				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
+				CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)516, (long long)11, (long long)580, (long long)32, !blacklistSelected });
+				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 });
+				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
+				CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)549, (long long)17, "BLACKLIST"});
+			};
+			CharSelect_Draw_0(pCodeEvent, Self, Other, Code, Res, Flags);
+			codeFuncTable[Code->i_CodeIndex] = CharSelect_Draw_0;
 		}
 		else
 		{
