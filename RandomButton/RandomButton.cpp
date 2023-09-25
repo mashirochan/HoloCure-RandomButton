@@ -8,6 +8,8 @@
 #include <iostream>
 #include <fstream>
 #include "json.hpp"
+#include "Utils/MH/MinHook.h"
+#include "Features/API/Internal.hpp"
 using json = nlohmann::json;
 
 static struct Version {
@@ -73,6 +75,90 @@ void GenerateConfig(std::string fileName) {
 		PrintError(__FILE__, __LINE__, "[%s v%d.%d.%d] - Error opening config file \"%s\"", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
 	}
 }
+
+// Function hooks
+using FNScriptData = CScript * (*)(int);
+FNScriptData scriptList = nullptr;
+TRoutine assetGetIndexFunc;
+
+YYTKStatus MmGetScriptData(FNScriptData& outScript) {
+#ifdef _WIN64
+
+	uintptr_t FuncCallPattern = FindPattern("\xE8\x00\x00\x00\x00\x33\xC9\x0F\xB7\xD3", "x????xxxxx", 0, 0);
+
+	if (!FuncCallPattern)
+		return YYTK_INVALIDRESULT;
+
+	uintptr_t Relative = *reinterpret_cast<uint32_t*>(FuncCallPattern + 1);
+	Relative = (FuncCallPattern + 5) + Relative;
+
+	if (!Relative)
+		return YYTK_INVALIDRESULT;
+
+	outScript = reinterpret_cast<FNScriptData>(Relative);
+
+	return YYTK_OK;
+#else
+	return YYTK_UNAVAILABLE;
+#endif
+}
+
+void Hook(void* NewFunc, void* TargetFuncPointer, void** pfnOriginal, const char* Name) {
+	if (TargetFuncPointer) {
+		auto Status = MH_CreateHook(TargetFuncPointer, NewFunc, pfnOriginal);
+		if (Status != MH_OK)
+			PrintMessage(
+				CLR_RED,
+				"Failed to hook function %s (MH Status %s) in %s at line %d",
+				Name,
+				MH_StatusToString(Status),
+				__FILE__,
+				__LINE__
+			);
+		else
+			MH_EnableHook(TargetFuncPointer);
+
+		PrintMessage(CLR_GRAY, "- &%s = 0x%p", Name, TargetFuncPointer);
+	} else {
+		PrintMessage(
+			CLR_RED,
+			"Failed to hook function %s (address not found) in %s at line %d",
+			Name,
+			__FILE__,
+			__LINE__
+		);
+	}
+};
+
+void HookScriptFunction(const char* scriptFunctionName, void* detourFunction, void** origScript) {
+	RValue Result;
+	RValue arg{};
+	arg.Kind = VALUE_STRING;
+	arg.String = RefString::Alloc(scriptFunctionName, strlen(scriptFunctionName));
+	assetGetIndexFunc(&Result, nullptr, nullptr, 1, &arg);
+
+	int scriptFunctionIndex = static_cast<int>(Result.Real) - 100000;
+
+	CScript* CScript = scriptList(scriptFunctionIndex);
+
+	Hook(
+		detourFunction,
+		(void*)(CScript->s_pFunc->pScriptFunc),
+		origScript,
+		scriptFunctionName
+	);
+}
+
+typedef YYRValue* (*ScriptFunc)(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args);
+
+// gml_Script_Up_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origUpCharSelectScript = nullptr;
+
+YYRValue* UpCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = origUpCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	PrintMessage(CLR_BRIGHTPURPLE, "gml_Script_Up_gml_Object_obj_CharSelect_Create_0 called!");
+	return res;
+};
 
 inline void CallOriginal(YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 	if (!pCodeEvent->CalledOriginal()) {
@@ -368,6 +454,11 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 		}
 		PrintMessage(CLR_GREEN, "[%s v%d.%d.%d] - %s loaded successfully!", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
 	}
+
+	// Function hooks
+	PrintMessage(CLR_BRIGHTPURPLE, "Hooking gml_Script_Up_gml_Object_obj_CharSelect_Create_0...");
+	HookScriptFunction("gml_Script_Up_gml_Object_obj_CharSelect_Create_0", (void*)&UpCharSelectFuncDetour, (void**)&origUpCharSelectScript);
+	PrintMessage(CLR_BRIGHTPURPLE, "gml_Script_Up_gml_Object_obj_CharSelect_Create_0 hooked!");
 
 	// Off it goes to the core.
 	return YYTK_OK;
