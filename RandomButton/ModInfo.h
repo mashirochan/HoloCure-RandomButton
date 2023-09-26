@@ -1,7 +1,7 @@
 #pragma once
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 1
-#define VERSION_BUILD 31
+#define VERSION_BUILD 53
 #define MOD_NAME "Random Button"
 #define HAS_CONFIG true
 

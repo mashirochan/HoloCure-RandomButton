@@ -12,7 +12,7 @@ struct CStream
 struct alignedTo(4) CScript
 {
 	void** pVMT;
-	CStream* s_text;
+//	CStream* s_text;
 	CCode* s_code;
 	YYGMLFuncs* s_pFunc;
 	CInstance* s_pStaticObject;

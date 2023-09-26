@@ -76,6 +76,10 @@ void GenerateConfig(std::string fileName) {
 	}
 }
 
+// Blacklist menu variables
+static bool blacklistSelected = false;
+static bool blacklistOpen = false;
+
 // Function hooks
 using FNScriptData = CScript * (*)(int);
 FNScriptData scriptList = nullptr;
@@ -153,10 +157,89 @@ typedef YYRValue* (*ScriptFunc)(CInstance* Self, CInstance* Other, YYRValue* Ret
 
 // gml_Script_Up_gml_Object_obj_CharSelect_Create_0
 ScriptFunc origUpCharSelectScript = nullptr;
-
 YYRValue* UpCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue yyrv_selectingGen;
+	YYRValue result;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	if (static_cast<int>(yyrv_selectingGen) == 0) {
+		CallBuiltin(result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "selectingGen", (double)-1 });
+		blacklistSelected = true;
+		CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)171, (double)0, false }); // 171 = snd_charSelectWoosh
+	}
 	YYRValue* res = origUpCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
-	PrintMessage(CLR_BRIGHTPURPLE, "gml_Script_Up_gml_Object_obj_CharSelect_Create_0 called!");
+	return res;
+};
+
+// gml_Script_Down_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origDownCharSelectScript = nullptr;
+YYRValue* DownCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = nullptr;
+	YYRValue yyrv_selectingGen;
+	YYRValue result;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		CallBuiltin(result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "selectingGen", (double)0 });
+		blacklistSelected = false;
+		CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)171, (double)0, false });
+		return res;
+	}
+	res = origDownCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	return res;
+};
+
+// gml_Script_Left_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origLeftCharSelectScript = nullptr;
+YYRValue* LeftCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = nullptr;
+	YYRValue yyrv_selectingGen;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		return res;
+	}
+	res = origLeftCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	return res;
+};
+
+// gml_Script_Right_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origRightCharSelectScript = nullptr;
+YYRValue* RightCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = nullptr;
+	YYRValue yyrv_selectingGen;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		return res;
+	}
+	res = origRightCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	return res;
+};
+
+// gml_Script_Select_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origSelectCharSelectScript = nullptr;
+YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = nullptr;
+	YYRValue yyrv_selectingGen;
+	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		if (blacklistOpen == false) {
+			blacklistOpen = true;
+		}
+		return res;
+	}
+	res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	return res;
+};
+
+// gml_Script_Return_gml_Object_obj_CharSelect_Create_0
+ScriptFunc origReturnCharSelectScript = nullptr;
+YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
+	YYRValue* res = nullptr;
+	YYRValue yyrv_selectingGen;
+	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		if (blacklistOpen == true) {
+			blacklistOpen = false;
+		}
+		return res;
+	}
+	res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 	return res;
 };
 
@@ -188,9 +271,6 @@ static std::unordered_map<int, std::function<void(YYTKCodeEvent* pCodeEvent, CIn
 static const char* playStr = "Play Modded!";
 RefString tempVar = RefString(playStr, strlen(playStr), false);
 static bool versionTextChanged = false;
-
-// Blacklist menu variables
-static bool blacklistSelected = false;
 
 // This callback is registered on EVT_PRESENT and EVT_ENDSCENE, so it gets called every frame on DX9 / DX11 games.
 YYTKStatus FrameCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
@@ -460,9 +540,12 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 	MH_Initialize();
 	MmGetScriptData(scriptList);
 	
-	PrintMessage(CLR_BRIGHTPURPLE, "Hooking gml_Script_Up_gml_Object_obj_CharSelect_Create_0...");
 	HookScriptFunction("gml_Script_Up_gml_Object_obj_CharSelect_Create_0", (void*)&UpCharSelectFuncDetour, (void**)&origUpCharSelectScript);
-	PrintMessage(CLR_BRIGHTPURPLE, "gml_Script_Up_gml_Object_obj_CharSelect_Create_0 hooked!");
+	HookScriptFunction("gml_Script_Down_gml_Object_obj_CharSelect_Create_0", (void*)&DownCharSelectFuncDetour, (void**)&origDownCharSelectScript);
+	HookScriptFunction("gml_Script_Left_gml_Object_obj_CharSelect_Create_0", (void*)&LeftCharSelectFuncDetour, (void**)&origLeftCharSelectScript);
+	HookScriptFunction("gml_Script_Right_gml_Object_obj_CharSelect_Create_0", (void*)&RightCharSelectFuncDetour, (void**)&origRightCharSelectScript);
+	HookScriptFunction("gml_Script_Select_gml_Object_obj_CharSelect_Create_0", (void*)&SelectCharSelectFuncDetour, (void**)&origSelectCharSelectScript);
+	HookScriptFunction("gml_Script_Return_gml_Object_obj_CharSelect_Create_0", (void*)&ReturnCharSelectFuncDetour, (void**)&origReturnCharSelectScript);
 
 	// Off it goes to the core.
 	return YYTK_OK;
