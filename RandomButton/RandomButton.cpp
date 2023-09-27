@@ -218,9 +218,12 @@ ScriptFunc origSelectCharSelectScript = nullptr;
 YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		if (blacklistOpen == false) {
 			blacklistOpen = true;
+		} else if (blacklistOpen == true) {
+			blacklistOpen = false;
 		}
 		return res;
 	}
@@ -233,13 +236,16 @@ ScriptFunc origReturnCharSelectScript = nullptr;
 YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
+	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		if (blacklistOpen == true) {
 			blacklistOpen = false;
+		} else {
+			res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 		}
 		return res;
 	}
-	res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+	res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 	return res;
 };
 
@@ -431,16 +437,41 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
 		}
-		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {
+		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {	// 640x360 viewport size
 			auto CharSelect_Draw_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
+				int marginW = 85;
 				YYRValue yyrv_result;
+				
+
+				if (blacklistOpen) {
+					// Blacklist Header
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
+					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(33), false });
+					// Blacklist Header Text
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16367178 }); // blue 4abef9
+					CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "EDITING BLACKLIST..." });
+					// Blacklist Body
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
+					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
+					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(0 + 34), (long long)(640 - marginW), (long long)(360 - 150), false });
+					// Blacklist Body Outline
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
+					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
+					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(360 - 150), true });
+				}
+
+				// Blacklist Button
 				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
 				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
-				CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)516, (long long)11, (long long)580, (long long)32, !blacklistSelected });
-				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 });
+				CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)484, (long long)11, (long long)548, (long long)32, !blacklistSelected });
+				// Blacklist Button Text
+				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
 				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
-				CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)549, (long long)17, "BLACKLIST"});
+				CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)517, (long long)17, "BLACKLIST" });
+
+				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
+				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
 			};
 			CharSelect_Draw_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Draw_0;
