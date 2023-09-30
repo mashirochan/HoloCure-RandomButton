@@ -79,6 +79,56 @@ void GenerateConfig(std::string fileName) {
 // Blacklist menu variables
 static bool blacklistSelected = false;
 static bool blacklistOpen = false;
+std::vector<int> indexesToRemove;
+std::vector<int> genLengths;
+static int totalChars = 0;
+std::vector<std::string> characterList = {};
+
+void SetBlacklist(CInstance* Self, CInstance* Other) {
+	// Create default array of 0 to totalChars
+	std::vector<int> origRandomCharArray(totalChars - 1);
+	std::iota(origRandomCharArray.begin(), origRandomCharArray.end(), 0);
+
+	// Get random available characters array
+	// [0, 1, 2, 3, ...]
+	YYRValue yyrv_randomCharArray;
+	CallBuiltin(yyrv_randomCharArray, "variable_instance_get", Self, Other, { (long long)Self->i_id, "randomAvailableCharacters" });
+
+	// Construct new random available characters array
+	size_t newSize = origRandomCharArray.size() - indexesToRemove.size();
+	RValue* yyrv_newRandCharArray = new RValue[newSize];
+	int currIndex = 0;
+	for (int i = 0; i < origRandomCharArray.size(); i++) {
+		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), origRandomCharArray[i]);
+		if (it == indexesToRemove.end()) {
+			yyrv_newRandCharArray[currIndex].Real = origRandomCharArray[i];
+			currIndex++;
+		}
+	}
+	yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
+	yyrv_randomCharArray.RefArray->length = newSize;
+
+	std::vector<std::string> newBlacklist = {};
+	for (int i = 0; i < characterList.size(); i++) {
+		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), i);
+		if (it != indexesToRemove.end()) {
+			newBlacklist.push_back(characterList[i]);
+		}
+	}
+
+	config.blacklist = newBlacklist;
+
+	std::string fileName = formatString(std::string(mod.name)) + "-config.json";
+	std::ofstream configFile("modconfigs/" + fileName);
+	json data = config;
+
+	if (configFile.is_open()) {
+		configFile << std::setw(4) << data << std::endl;
+		configFile.close();
+	} else {
+		PrintError(__FILE__, __LINE__, "[%s v%d.%d.%d] - Error opening config file \"%s\"", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
+	}
+}
 
 // Function hooks
 using FNScriptData = CScript * (*)(int);
@@ -220,11 +270,28 @@ YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 	YYRValue yyrv_selectingGen;
 	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
+		YYRValue result;
 		if (blacklistOpen == false) {
+			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)76, (double)0, false }); // 76 = snd_menu_confirm
 			blacklistOpen = true;
 		} else if (blacklistOpen == true) {
+			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
 			blacklistOpen = false;
+			SetBlacklist(Self, Other);
 		}
+		return res;
+	} else if (blacklistOpen == true) {
+		YYRValue yyrv_selectedselectedCharacter;
+		CallBuiltin(yyrv_selectedselectedCharacter, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectedCharacter" });
+		int selectedCharacter = static_cast<int>(yyrv_selectedselectedCharacter);
+		if (selectedCharacter == totalChars - 1) return res;
+		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), selectedCharacter);
+		if (it == indexesToRemove.end()) {				// if not in blacklist, add
+			indexesToRemove.push_back(selectedCharacter);
+		} else {										// if in blacklist, remove
+			indexesToRemove.erase(std::remove(indexesToRemove.begin(), indexesToRemove.end(), selectedCharacter), indexesToRemove.end());
+		}
+
 		return res;
 	}
 	res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
@@ -240,6 +307,7 @@ YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		if (blacklistOpen == true) {
 			blacklistOpen = false;
+			SetBlacklist(Self, Other);
 		} else {
 			res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 		}
@@ -380,9 +448,13 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				yyrv_lastGenArray.RefArray->m_Array[lastGenLength] = yyrv_random;
 
 				// Set random slot to last index of array
-				int totalChars = 0;
+				totalChars = 0;
+				genLengths.clear();
+				int genLength = 0;
 				for (int i = 0; i < yyrv_byGenArray.RefArray->length; i++) {
-					totalChars += yyrv_byGenArray.RefArray->m_Array[i].RefArray->length;
+					genLength = yyrv_byGenArray.RefArray->m_Array[i].RefArray->length;
+					totalChars += genLength;
+					genLengths.push_back(genLength);
 				}
 				YYRValue yyrv_randomSelectSlotIndex;
 				yyrv_randomSelectSlotIndex.Kind = VALUE_REAL;
@@ -391,48 +463,30 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				CallBuiltin(yyrv_result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "randomSelectSlot", yyrv_randomSelectSlotIndex });
 				if (config.debugEnabled) PrintMessage(CLR_TANGERINE, "[%s:%d] variable_instance_set : \"randomSelectSlot\", yyrv_randomSelectSlotIndex", GetFileName(__FILE__).c_str(), __LINE__);
 
-				if (config.blacklist.size() > 0) {
-					// Get character list
-					YYRValue yyrv_characterList;
-					CallBuiltin(yyrv_characterList, "variable_global_get", Self, Other, { "characterList" });
-					std::vector<std::string> characterList;
-					for (int i = 0; i < yyrv_characterList.RefArray->length; i++) {
-						characterList.push_back(std::string(yyrv_characterList.RefArray->m_Array[i].String->Get()));
-					}
-
-					// Find which numbers to remove
-					std::vector<int> indexesToRemove;
-					for (int i = 0; i < config.blacklist.size(); i++) {
-						auto it = std::find(characterList.begin(), characterList.end(), config.blacklist[i]);
-
-						if (it != characterList.end()) {
-							int index = std::distance(characterList.begin(), it);
-							indexesToRemove.push_back(index);
-							if (config.debugEnabled) PrintMessage(CLR_BRIGHTPURPLE, "\"%s\" found at %d", config.blacklist[i], index);
-						} else {
-							PrintError(__FILE__, __LINE__, "\"%s\" not found!", config.blacklist[i]);
-						}
-					}
-
-					// Get random available characters array
-					YYRValue yyrv_randomCharArray;
-					CallBuiltin(yyrv_randomCharArray, "variable_instance_get", Self, Other, { (long long)Self->i_id, "randomAvailableCharacters" });
-
-					// Construct new random available characters array
-					size_t newSize = yyrv_randomCharArray.RefArray->length - indexesToRemove.size();
-					RValue* yyrv_newRandCharArray = new RValue[newSize];
-					int currIndex = 0;
-					for (int i = 0; i < yyrv_randomCharArray.RefArray->length; i++) {
-						int target = static_cast<int>(yyrv_randomCharArray.RefArray->m_Array[i].Real);
-						auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), target);
-						if (it == indexesToRemove.end()) {
-							yyrv_newRandCharArray[currIndex] = yyrv_randomCharArray.RefArray->m_Array[i];
-							currIndex++;
-						}
-					}
-					yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
-					yyrv_randomCharArray.RefArray->length = newSize;
+				// Get character list
+				// ["ame", "gura", "ina", ...]
+				YYRValue yyrv_characterList;
+				CallBuiltin(yyrv_characterList, "variable_global_get", Self, Other, { "characterList" });
+				characterList.clear();
+				for (int i = 0; i < totalChars; i++) {
+					characterList.push_back(std::string(yyrv_characterList.RefArray->m_Array[i].String->Get()));
 				}
+
+				// Find which numbers to remove
+				// [0, 6, 17, 30, ...]
+				indexesToRemove.clear();
+				for (int i = 0; i < config.blacklist.size(); i++) {
+					auto it = std::find(characterList.begin(), characterList.end(), config.blacklist[i]);
+
+					if (it != characterList.end()) {
+						int index = std::distance(characterList.begin(), it);
+						indexesToRemove.push_back(index);
+						if (config.debugEnabled) PrintMessage(CLR_BRIGHTPURPLE, "\"%s\" found at %d", config.blacklist[i], index);
+					} else {
+						PrintError(__FILE__, __LINE__, "\"%s\" not found!", config.blacklist[i]);
+					}
+				}
+				SetBlacklist(Self, Other);
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
@@ -459,6 +513,34 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
 					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
 					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(360 - 150), true });
+
+					// If current location is a char to be removed, draw sprite at location
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)255 }); // red
+					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.50 });
+					int charPortHeight = 38;
+					int vertSpacing = 4;
+					int charPortY = 40;
+					int statX = 110;
+					int statY = 25;
+					int spacingY = 19;
+					int charX = 180;
+					int overallIndex = 0;
+					for (int i = 0; i < genLengths.size(); i++) {
+						for (int j = 0; j < genLengths[i]; j++) {
+							auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), overallIndex);
+							if (it != indexesToRemove.end()) {
+								int pushInX = ((6 - genLengths[i]) * 23);
+								CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, {
+									(long long)(((charX + (j * 46)) + 3) + pushInX),
+									(long long)(charPortY + (i * (charPortHeight + vertSpacing))),
+									(long long)(((charX + pushInX) + (j * 46)) + 45),
+									(long long)((charPortY + (i * (charPortHeight + vertSpacing))) + (charPortHeight - 1)),
+									false
+								});
+							}
+							overallIndex++;
+						}
+					}
 				}
 
 				// Blacklist Button
