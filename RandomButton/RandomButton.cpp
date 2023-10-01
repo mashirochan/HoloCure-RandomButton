@@ -79,12 +79,20 @@ void GenerateConfig(std::string fileName) {
 // Blacklist menu variables
 static bool blacklistSelected = false;
 static bool blacklistOpen = false;
+static bool inCharSelect = true;
+static int blacklistErrorTimer = 0;
 std::vector<int> indexesToRemove;
 std::vector<int> genLengths;
 static int totalChars = 0;
 std::vector<std::string> characterList = {};
+RValue* yyrv_newRandCharArray = nullptr;
 
-void SetBlacklist(CInstance* Self, CInstance* Other) {
+bool SetBlacklist(CInstance* Self, CInstance* Other) {
+	if (indexesToRemove.size() == totalChars - 1) {
+		PrintError(__FILE__, __LINE__, "You can't blacklist all characters!");
+		return false;
+	}
+
 	// Create default array of 0 to totalChars
 	std::vector<int> origRandomCharArray(totalChars - 1);
 	std::iota(origRandomCharArray.begin(), origRandomCharArray.end(), 0);
@@ -96,13 +104,18 @@ void SetBlacklist(CInstance* Self, CInstance* Other) {
 
 	// Construct new random available characters array
 	size_t newSize = origRandomCharArray.size() - indexesToRemove.size();
-	RValue* yyrv_newRandCharArray = new RValue[newSize];
+	yyrv_newRandCharArray = new RValue[newSize];
 	int currIndex = 0;
 	for (int i = 0; i < origRandomCharArray.size(); i++) {
 		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), origRandomCharArray[i]);
 		if (it == indexesToRemove.end()) {
-			yyrv_newRandCharArray[currIndex].Real = origRandomCharArray[i];
-			currIndex++;
+			if (currIndex < newSize) {
+				yyrv_newRandCharArray[currIndex].Kind = 0;
+				yyrv_newRandCharArray[currIndex].Real = origRandomCharArray[i];
+				currIndex++;
+			} else {
+				PrintError(__FILE__, __LINE__, "currIndex is out of bounds!");
+			}
 		}
 	}
 	yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
@@ -128,6 +141,8 @@ void SetBlacklist(CInstance* Self, CInstance* Other) {
 	} else {
 		PrintError(__FILE__, __LINE__, "[%s v%d.%d.%d] - Error opening config file \"%s\"", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
 	}
+
+	return true;
 }
 
 // Function hooks
@@ -275,9 +290,14 @@ YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)76, (double)0, false }); // 76 = snd_menu_confirm
 			blacklistOpen = true;
 		} else if (blacklistOpen == true) {
-			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
-			blacklistOpen = false;
-			SetBlacklist(Self, Other);
+			if (SetBlacklist(Self, Other)) {
+				CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
+				blacklistOpen = false;
+				blacklistErrorTimer = 0;
+			} else {
+				CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)83, (double)0, false }); // 83 = snd_alert
+				blacklistErrorTimer = 60 * 3;
+			}
 		}
 		return res;
 	} else if (blacklistOpen == true) {
@@ -291,11 +311,17 @@ YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 		} else {										// if in blacklist, remove
 			indexesToRemove.erase(std::remove(indexesToRemove.begin(), indexesToRemove.end(), selectedCharacter), indexesToRemove.end());
 		}
-
+		return res;
+	} else {
+		res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+		// Check if a character is selected
+		YYRValue yyrv_charSelected;
+		CallBuiltin(yyrv_charSelected, "variable_global_get", Self, Other, { "charSelected" });
+		if (yyrv_charSelected.Object != Self) {
+			inCharSelect = false;
+		}
 		return res;
 	}
-	res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
-	return res;
 };
 
 // gml_Script_Return_gml_Object_obj_CharSelect_Create_0
@@ -304,17 +330,27 @@ YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
 	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
-	if (static_cast<int>(yyrv_selectingGen) == -1) {
-		if (blacklistOpen == true) {
+	YYRValue result;
+	if (blacklistOpen == true) {
+		if (SetBlacklist(Self, Other)) {
+			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
 			blacklistOpen = false;
-			SetBlacklist(Self, Other);
+			blacklistErrorTimer = 0;
 		} else {
-			res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)83, (double)0, false }); // 83 = snd_alert
+			blacklistErrorTimer = 60 * 3;
+		}
+		return res;
+	} else {
+		res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
+		// Check if a character is selected
+		YYRValue yyrv_charSelected;
+		CallBuiltin(yyrv_charSelected, "variable_global_get", Self, Other, { "charSelected" });
+		if (static_cast<int>(yyrv_charSelected) == -1) {
+			inCharSelect = true;
 		}
 		return res;
 	}
-	res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
-	return res;
 };
 
 inline void CallOriginal(YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
@@ -503,8 +539,15 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
 					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(33), false });
 					// Blacklist Header Text
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16367178 }); // blue 4abef9
-					CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "EDITING BLACKLIST..." });
+					if (blacklistErrorTimer > 0) {
+						blacklistErrorTimer--;
+						CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)255 }); // red
+						CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
+						CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "ERROR: CAN'T BLACKLIST ALL CHARACTERS!" });
+					} else {
+						CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16367178 }); // blue 4abef9
+						CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "EDITING BLACKLIST..." });
+					}
 					// Blacklist Body
 					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
 					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
@@ -541,16 +584,19 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 							overallIndex++;
 						}
 					}
+					
 				}
 
-				// Blacklist Button
-				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
-				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
-				CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)484, (long long)11, (long long)548, (long long)32, !blacklistSelected });
-				// Blacklist Button Text
-				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
-				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
-				CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)517, (long long)17, "BLACKLIST" });
+				if (inCharSelect == true) {
+					// Blacklist Button
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
+					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
+					CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)484, (long long)11, (long long)548, (long long)32, !blacklistSelected });
+					// Blacklist Button Text
+					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
+					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
+					CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)517, (long long)17, "BLACKLIST" });
+				}
 
 				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
 				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });

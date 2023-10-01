@@ -84,6 +84,7 @@ struct YYRValue : public RValue
 	// static_cast<RefString*>(V);
 	operator RefString*() const noexcept(true);
 
+	// static_cast<YYObjectBase*>(V);
 	operator YYObjectBase* () const noexcept(true);
 
 	// V += 30.0;
