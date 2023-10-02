@@ -100,6 +100,13 @@ struct ArgSetup {
 		args[0].Kind = VALUE_REAL;
 		isInitialized = true;
 	}
+	ArgSetup(double device, double mouseButton) {
+		args[0].Real = device;
+		args[0].Kind = VALUE_REAL;
+		args[1].Real = mouseButton;
+		args[1].Kind = VALUE_REAL;
+		isInitialized = true;
+	}
 	ArgSetup(long long id, const char* name) {
 		args[0].I64 = id;
 		args[0].Kind = VALUE_INT64;
@@ -188,6 +195,13 @@ ArgSetup args_blacklistError_text;
 TRoutine audioPlaySoundFunc = nullptr;
 ArgSetup args_audioPlaySound;
 
+TRoutine deviceMouseXToGUIFunc = nullptr;
+TRoutine deviceMouseYToGUIFunc = nullptr;
+ArgSetup args_deviceMouse;
+
+TRoutine deviceMouseCheckButtonPressedFunc = nullptr;
+ArgSetup args_checkButtonPressed;
+
 YYTKStatus MmGetScriptData(FNScriptData& outScript) {
 #ifdef _WIN64
 
@@ -266,6 +280,13 @@ std::vector<int> genLengths;
 static int totalChars = 0;
 std::vector<std::string> characterList = {};
 RValue* yyrv_newRandCharArray = nullptr;
+YYRValue yyrv_mouseX;
+YYRValue yyrv_mouseY;
+static bool buttonEntered = false;
+static bool buttonExited = false;
+static bool mouseMoved = false;
+int prev_mouseX = 0;
+int prev_mouseY = 0;
 
 bool SetBlacklist(CInstance* Self, CInstance* Other) {
 	if (indexesToRemove.size() == totalChars - 1) {
@@ -586,6 +607,8 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				if (args_characterList.isInitialized == false) args_characterList = ArgSetup("characterList");
 				if (args_randomSelectSlot_set.isInitialized == false) args_randomSelectSlot_set = ArgSetup(Self->i_id, "characterList", 0);
 				if (args_selectingGen_set.isInitialized == false) args_selectingGen_set = ArgSetup(Self->i_id, "selectingGen", 0);
+				if (args_deviceMouse.isInitialized == false) args_deviceMouse = ArgSetup((double)0);
+				if (args_checkButtonPressed.isInitialized == false) args_checkButtonPressed = ArgSetup((double)0, (double)1);
 
 				// Get random character map value
 				YYRValue yyrv_characterData;
@@ -657,6 +680,60 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
+		}
+		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Step_0") == 0) {
+			auto CharSelect_Step_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
+				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
+				deviceMouseXToGUIFunc(&yyrv_mouseX, Self, Other, 1, args_deviceMouse.args);
+				int mouseX = static_cast<int>(yyrv_mouseX) / 2;
+				deviceMouseYToGUIFunc(&yyrv_mouseY, Self, Other, 1, args_deviceMouse.args);
+				int mouseY = static_cast<int>(yyrv_mouseY) / 2;
+				if (mouseX != prev_mouseX || mouseY != prev_mouseY) {
+					mouseMoved = true;
+					prev_mouseX = mouseX;
+					prev_mouseY = mouseY;
+				} else {
+					mouseMoved = false;
+				}
+				bool blacklistHovered = mouseX > 484 && mouseX < 548 && mouseY > 11 && mouseY < 32;
+				if (blacklistHovered) {
+					if (blacklistSelected == false) {
+						blacklistSelected = true;
+						YYRValue result;
+						args_selectingGen_set.args[2].Real = -1;
+						variableInstanceSetFunc(&result, Self, Other, 3, args_selectingGen_set.args);
+						args_audioPlaySound.args[0].I64 = 171; // 171 = snd_charSelectWoosh
+						audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
+					}
+					YYRValue yyrv_leftMousePressed;
+					deviceMouseCheckButtonPressedFunc(&yyrv_leftMousePressed, Self, Other, 2, args_checkButtonPressed.args); // 1 = mb_left
+					if (static_cast<int>(yyrv_leftMousePressed) == 1) {
+						YYRValue result;
+						if (blacklistOpen == false) {
+							args_audioPlaySound.args[0].I64 = 76; // 76 = snd_menu_confirm
+							audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
+							blacklistOpen = true;
+						} else if (blacklistOpen == true) {
+							if (SetBlacklist(Self, Other)) {
+								args_audioPlaySound.args[0].I64 = 55; // 55 = snd_menu_back
+								audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
+								blacklistOpen = false;
+								blacklistErrorTimer = 0;
+							} else {
+								args_audioPlaySound.args[0].I64 = 83; // 83 = snd_alert
+								audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
+								blacklistErrorTimer = 60 * 3;
+							}
+						}
+					}
+				} else if (mouseMoved == true) {
+					if (blacklistSelected == true) {
+						blacklistSelected = false;
+					}
+				}
+			};
+			CharSelect_Step_0(pCodeEvent, Self, Other, Code, Res, Flags);
+			codeFuncTable[Code->i_CodeIndex] = CharSelect_Step_0;
 		}
 		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {	// 640x360 viewport size
 			auto CharSelect_Draw_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
@@ -888,6 +965,9 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 	GetFunctionByName("draw_button", drawButtonFunc);
 	GetFunctionByName("draw_text", drawTextFunc);
 	GetFunctionByName("audio_play_sound", audioPlaySoundFunc);
+	GetFunctionByName("device_mouse_x_to_gui", deviceMouseXToGUIFunc);
+	GetFunctionByName("device_mouse_y_to_gui", deviceMouseYToGUIFunc);
+	GetFunctionByName("device_mouse_check_button_pressed", deviceMouseCheckButtonPressedFunc);
 
 	// Function Hooks
 	MH_Initialize();
