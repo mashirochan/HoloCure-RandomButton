@@ -76,79 +76,117 @@ void GenerateConfig(std::string fileName) {
 	}
 }
 
-// Blacklist menu variables
-static bool blacklistSelected = false;
-static bool blacklistOpen = false;
-static bool inCharSelect = true;
-static int blacklistErrorTimer = 0;
-std::vector<int> indexesToRemove;
-std::vector<int> genLengths;
-static int totalChars = 0;
-std::vector<std::string> characterList = {};
-RValue* yyrv_newRandCharArray = nullptr;
-
-bool SetBlacklist(CInstance* Self, CInstance* Other) {
-	if (indexesToRemove.size() == totalChars - 1) {
-		PrintError(__FILE__, __LINE__, "You can't blacklist all characters!");
-		return false;
-	}
-
-	// Create default array of 0 to totalChars
-	std::vector<int> origRandomCharArray(totalChars - 1);
-	std::iota(origRandomCharArray.begin(), origRandomCharArray.end(), 0);
-
-	// Get random available characters array
-	// [0, 1, 2, 3, ...]
-	YYRValue yyrv_randomCharArray;
-	CallBuiltin(yyrv_randomCharArray, "variable_instance_get", Self, Other, { (long long)Self->i_id, "randomAvailableCharacters" });
-
-	// Construct new random available characters array
-	size_t newSize = origRandomCharArray.size() - indexesToRemove.size();
-	yyrv_newRandCharArray = new RValue[newSize];
-	int currIndex = 0;
-	for (int i = 0; i < origRandomCharArray.size(); i++) {
-		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), origRandomCharArray[i]);
-		if (it == indexesToRemove.end()) {
-			if (currIndex < newSize) {
-				yyrv_newRandCharArray[currIndex].Kind = 0;
-				yyrv_newRandCharArray[currIndex].Real = origRandomCharArray[i];
-				currIndex++;
-			} else {
-				PrintError(__FILE__, __LINE__, "currIndex is out of bounds!");
-			}
-		}
-	}
-	yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
-	yyrv_randomCharArray.RefArray->length = newSize;
-
-	std::vector<std::string> newBlacklist = {};
-	for (int i = 0; i < characterList.size(); i++) {
-		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), i);
-		if (it != indexesToRemove.end()) {
-			newBlacklist.push_back(characterList[i]);
-		}
-	}
-
-	config.blacklist = newBlacklist;
-
-	std::string fileName = formatString(std::string(mod.name)) + "-config.json";
-	std::ofstream configFile("modconfigs/" + fileName);
-	json data = config;
-
-	if (configFile.is_open()) {
-		configFile << std::setw(4) << data << std::endl;
-		configFile.close();
-	} else {
-		PrintError(__FILE__, __LINE__, "[%s v%d.%d.%d] - Error opening config file \"%s\"", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
-	}
-
-	return true;
-}
-
-// Function hooks
+// Function Hooks
 using FNScriptData = CScript * (*)(int);
 FNScriptData scriptList = nullptr;
-TRoutine assetGetIndexFunc;
+
+// Function Pointers
+struct ArgSetup {
+	RValue args[5] = {};
+	bool isInitialized = false;
+	ArgSetup() {}
+	ArgSetup(const char* name) {
+		args[0].String = RefString::Alloc(name, strlen(name), false);
+		args[0].Kind = VALUE_STRING;
+		isInitialized = true;
+	}
+	ArgSetup(long long value) {
+		args[0].I64 = value;
+		args[0].Kind = VALUE_INT64;
+		isInitialized = true;
+	}
+	ArgSetup(double value) {
+		args[0].Real = value;
+		args[0].Kind = VALUE_REAL;
+		isInitialized = true;
+	}
+	ArgSetup(long long id, const char* name) {
+		args[0].I64 = id;
+		args[0].Kind = VALUE_INT64;
+		args[1].String = RefString::Alloc(name, strlen(name), false);
+		args[1].Kind = VALUE_STRING;
+		isInitialized = true;
+	}
+	ArgSetup(long long x, long long y, const char* text) {
+		args[0].I64 = x;
+		args[0].Kind = VALUE_INT64;
+		args[1].I64 = y;
+		args[1].Kind = VALUE_INT64;
+		args[2].String = RefString::Alloc(text, strlen(text), false);
+		args[2].Kind = VALUE_STRING;
+		isInitialized = true;
+	}
+	ArgSetup(long long id, double priority, bool loop) {
+		args[0].I64 = id;
+		args[0].Kind = VALUE_INT64;
+		args[1].Real = priority;
+		args[1].Kind = VALUE_REAL;
+		args[2].I64 = loop;
+		args[2].Kind = VALUE_BOOL;
+		isInitialized = true;
+	}
+	ArgSetup(long long id, const char* name, double value) {
+		args[0].I64 = id;
+		args[0].Kind = VALUE_INT64;
+		args[1].String = RefString::Alloc(name, strlen(name), false);
+		args[1].Kind = VALUE_STRING;
+		args[2].Real = value;
+		args[2].Kind = VALUE_REAL;
+		isInitialized = true;
+	}
+	ArgSetup(long long topl_x, long long topl_y, long long botr_x, long long botr_y, bool isOutline) {
+		args[0].I64 = topl_x;
+		args[0].Kind = VALUE_INT64;
+		args[1].I64 = topl_y;
+		args[1].Kind = VALUE_INT64;
+		args[2].I64 = botr_x;
+		args[2].Kind = VALUE_INT64;
+		args[3].I64 = botr_y;
+		args[3].Kind = VALUE_INT64;
+		args[4].I64 = isOutline;
+		args[4].Kind = VALUE_BOOL;
+		isInitialized = true;
+	}
+};
+
+TRoutine assetGetIndexFunc = nullptr;
+
+TRoutine variableInstanceGetFunc = nullptr;
+ArgSetup args_selectingGen;
+ArgSetup args_selectedCharacter;
+ArgSetup args_byGenArray;
+ArgSetup args_randomCharArray;
+ArgSetup args_randomAvailableCharacters;
+
+TRoutine variableInstanceSetFunc = nullptr;
+ArgSetup args_selectingGen_set;
+ArgSetup args_randomSelectSlot_set;
+
+TRoutine variableGlobalGetFunc = nullptr;
+ArgSetup args_charSelected;
+ArgSetup args_version;
+ArgSetup args_textContainer;
+ArgSetup args_characterData;
+ArgSetup args_characterList;
+
+TRoutine drawSetAlphaFunc = nullptr;
+ArgSetup args_drawSetAlpha;
+
+TRoutine drawSetColorFunc = nullptr;
+ArgSetup args_drawSetColor;
+
+TRoutine drawRectangleFunc = nullptr;
+ArgSetup args_drawRectangle;
+
+TRoutine drawButtonFunc = nullptr;
+
+TRoutine drawTextFunc = nullptr;
+ArgSetup args_blacklist_text;
+ArgSetup args_blacklistEditing_text;
+ArgSetup args_blacklistError_text;
+
+TRoutine audioPlaySoundFunc = nullptr;
+ArgSetup args_audioPlaySound;
 
 YYTKStatus MmGetScriptData(FNScriptData& outScript) {
 #ifdef _WIN64
@@ -218,6 +256,76 @@ void HookScriptFunction(const char* scriptFunctionName, void* detourFunction, vo
 	);
 }
 
+// Blacklist menu variables
+static bool blacklistSelected = false;
+static bool blacklistOpen = false;
+static bool inCharSelect = true;
+static int blacklistErrorTimer = 0;
+std::vector<int> indexesToRemove;
+std::vector<int> genLengths;
+static int totalChars = 0;
+std::vector<std::string> characterList = {};
+RValue* yyrv_newRandCharArray = nullptr;
+
+bool SetBlacklist(CInstance* Self, CInstance* Other) {
+	if (indexesToRemove.size() == totalChars - 1) {
+		PrintError(__FILE__, __LINE__, "You can't blacklist all characters!");
+		return false;
+	}
+
+	// Create default array of 0 to totalChars
+	std::vector<int> origRandomCharArray(totalChars - 1);
+	std::iota(origRandomCharArray.begin(), origRandomCharArray.end(), 0);
+
+	// Get random available characters array
+	// [0, 1, 2, 3, ...]
+	YYRValue yyrv_randomCharArray;
+	if (args_randomAvailableCharacters.isInitialized == false) args_randomAvailableCharacters = ArgSetup(Self->i_id, "randomAvailableCharacters");
+	variableInstanceGetFunc(&yyrv_randomCharArray, Self, Other, 2, args_randomAvailableCharacters.args);
+
+	// Construct new random available characters array
+	size_t newSize = origRandomCharArray.size() - indexesToRemove.size();
+	yyrv_newRandCharArray = new RValue[newSize];
+	int currIndex = 0;
+	for (int i = 0; i < origRandomCharArray.size(); i++) {
+		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), origRandomCharArray[i]);
+		if (it == indexesToRemove.end()) {
+			if (currIndex < newSize) {
+				yyrv_newRandCharArray[currIndex].Kind = 0;
+				yyrv_newRandCharArray[currIndex].Real = origRandomCharArray[i];
+				currIndex++;
+			} else {
+				PrintError(__FILE__, __LINE__, "currIndex is out of bounds!");
+			}
+		}
+	}
+	yyrv_randomCharArray.RefArray->m_Array = yyrv_newRandCharArray;
+	yyrv_randomCharArray.RefArray->length = newSize;
+
+	std::vector<std::string> newBlacklist = {};
+	for (int i = 0; i < characterList.size(); i++) {
+		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), i);
+		if (it != indexesToRemove.end()) {
+			newBlacklist.push_back(characterList[i]);
+		}
+	}
+
+	config.blacklist = newBlacklist;
+
+	std::string fileName = formatString(std::string(mod.name)) + "-config.json";
+	std::ofstream configFile("modconfigs/" + fileName);
+	json data = config;
+
+	if (configFile.is_open()) {
+		configFile << std::setw(4) << data << std::endl;
+		configFile.close();
+	} else {
+		PrintError(__FILE__, __LINE__, "[%s v%d.%d.%d] - Error opening config file \"%s\"", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
+	}
+
+	return true;
+}
+
 typedef YYRValue* (*ScriptFunc)(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args);
 
 // gml_Script_Up_gml_Object_obj_CharSelect_Create_0
@@ -225,11 +333,13 @@ ScriptFunc origUpCharSelectScript = nullptr;
 YYRValue* UpCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue yyrv_selectingGen;
 	YYRValue result;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	if (static_cast<int>(yyrv_selectingGen) == 0) {
-		CallBuiltin(result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "selectingGen", (double)-1 });
+		args_selectingGen_set.args[2].Real = -1;
+		variableInstanceSetFunc(&result, Self, Other, 3, args_selectingGen_set.args);
 		blacklistSelected = true;
-		CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)171, (double)0, false }); // 171 = snd_charSelectWoosh
+		args_audioPlaySound.args[0].I64 = 171; // 171 = snd_charSelectWoosh
+		audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 	}
 	YYRValue* res = origUpCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 	return res;
@@ -241,11 +351,13 @@ YYRValue* DownCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* 
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
 	YYRValue result;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
-		CallBuiltin(result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "selectingGen", (double)0 });
+		args_selectingGen_set.args[2].Real = 0;
+		variableInstanceSetFunc(&result, Self, Other, 3, args_selectingGen_set.args);
 		blacklistSelected = false;
-		CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)171, (double)0, false });
+		args_audioPlaySound.args[0].I64 = 171; // 171 = snd_charSelectWoosh
+		audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 		return res;
 	}
 	res = origDownCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
@@ -257,7 +369,7 @@ ScriptFunc origLeftCharSelectScript = nullptr;
 YYRValue* LeftCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		return res;
 	}
@@ -270,7 +382,7 @@ ScriptFunc origRightCharSelectScript = nullptr;
 YYRValue* RightCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		return res;
 	}
@@ -283,27 +395,30 @@ ScriptFunc origSelectCharSelectScript = nullptr;
 YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	if (static_cast<int>(yyrv_selectingGen) == -1) {
 		YYRValue result;
 		if (blacklistOpen == false) {
-			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)76, (double)0, false }); // 76 = snd_menu_confirm
+			args_audioPlaySound.args[0].I64 = 76; // 76 = snd_menu_confirm
+			audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 			blacklistOpen = true;
 		} else if (blacklistOpen == true) {
 			if (SetBlacklist(Self, Other)) {
-				CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
+				args_audioPlaySound.args[0].I64 = 55; // 55 = snd_menu_back
+				audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 				blacklistOpen = false;
 				blacklistErrorTimer = 0;
 			} else {
-				CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)83, (double)0, false }); // 83 = snd_alert
+				args_audioPlaySound.args[0].I64 = 83; // 83 = snd_alert
+				audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 				blacklistErrorTimer = 60 * 3;
 			}
 		}
 		return res;
 	} else if (blacklistOpen == true) {
-		YYRValue yyrv_selectedselectedCharacter;
-		CallBuiltin(yyrv_selectedselectedCharacter, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectedCharacter" });
-		int selectedCharacter = static_cast<int>(yyrv_selectedselectedCharacter);
+		YYRValue yyrv_selectedCharacter;
+		variableInstanceGetFunc(&yyrv_selectedCharacter, Self, Other, 2, args_selectedCharacter.args);
+		int selectedCharacter = static_cast<int>(yyrv_selectedCharacter);
 		if (selectedCharacter == totalChars - 1) return res;
 		auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), selectedCharacter);
 		if (it == indexesToRemove.end()) {				// if not in blacklist, add
@@ -316,7 +431,7 @@ YYRValue* SelectCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 		res = origSelectCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 		// Check if a character is selected
 		YYRValue yyrv_charSelected;
-		CallBuiltin(yyrv_charSelected, "variable_global_get", Self, Other, { "charSelected" });
+		variableGlobalGetFunc(&yyrv_charSelected, Self, Other, 1, args_charSelected.args);
 		if (yyrv_charSelected.Object != Self) {
 			inCharSelect = false;
 		}
@@ -329,15 +444,17 @@ ScriptFunc origReturnCharSelectScript = nullptr;
 YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue* ReturnValue, int numArgs, YYRValue** Args) {
 	YYRValue* res = nullptr;
 	YYRValue yyrv_selectingGen;
-	CallBuiltin(yyrv_selectingGen, "variable_instance_get", Self, Other, { (long long)Self->i_id, "selectingGen" });
+	variableInstanceGetFunc(&yyrv_selectingGen, Self, Other, 2, args_selectingGen.args);
 	YYRValue result;
 	if (blacklistOpen == true) {
 		if (SetBlacklist(Self, Other)) {
-			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)55, (double)0, false }); // 55 = snd_menu_back
+			args_audioPlaySound.args[0].I64 = 55; // 55 = snd_menu_back
+			audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 			blacklistOpen = false;
 			blacklistErrorTimer = 0;
 		} else {
-			CallBuiltin(result, "audio_play_sound", Self, Other, { (long long)83, (double)0, false }); // 83 = snd_alert
+			args_audioPlaySound.args[0].I64 = 83; // 83 = snd_alert
+			audioPlaySoundFunc(&result, Self, Other, 3, args_audioPlaySound.args);
 			blacklistErrorTimer = 60 * 3;
 		}
 		return res;
@@ -345,7 +462,7 @@ YYRValue* ReturnCharSelectFuncDetour(CInstance* Self, CInstance* Other, YYRValue
 		res = origReturnCharSelectScript(Self, Other, ReturnValue, numArgs, Args);
 		// Check if a character is selected
 		YYRValue yyrv_charSelected;
-		CallBuiltin(yyrv_charSelected, "variable_global_get", Self, Other, { "charSelected" });
+		variableGlobalGetFunc(&yyrv_charSelected, Self, Other, 1, args_charSelected.args);
 		if (static_cast<int>(yyrv_charSelected) == -1) {
 			inCharSelect = true;
 		}
@@ -412,9 +529,10 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 		codeIndexToName[Code->i_CodeIndex] = Code->i_pName;
 		if (_strcmpi(Code->i_pName, "gml_Object_obj_TitleScreen_Create_0") == 0) {
 			auto TitleScreen_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
+				if (args_version.isInitialized == false) args_version = ArgSetup("version");
 				if (versionTextChanged == false) {
 					YYRValue yyrv_version;
-					CallBuiltin(yyrv_version, "variable_global_get", Self, Other, { "version" });
+					variableGlobalGetFunc(&yyrv_version, Self, Other, 1, args_version.args);
 					if (config.debugEnabled) PrintMessage(CLR_AQUA, "[%s:%d] variable_global_get : version", GetFileName(__FILE__).c_str(), __LINE__);
 					if (yyrv_version.operator std::string().find("Modded") == std::string::npos) {
 						std::string moddedVerStr = yyrv_version.operator std::string() + " (Modded)";
@@ -437,7 +555,8 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			auto TextController_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 				YYRValue yyrv_textContainer;
-				CallBuiltin(yyrv_textContainer, "variable_global_get", Self, Other, { "TextContainer" });
+				if (args_textContainer.isInitialized == false) args_textContainer = ArgSetup("TextContainer");
+				variableGlobalGetFunc(&yyrv_textContainer, Self, Other, 1, args_textContainer.args);
 				if (config.debugEnabled) PrintMessage(CLR_AQUA, "[%s:%d] variable_global_get : TextContainer", GetFileName(__FILE__).c_str(), __LINE__);
 				YYRValue yyrv_titleButtons;
 				CallBuiltin(yyrv_titleButtons, "struct_get", Self, Other, { yyrv_textContainer, "titleButtons" });
@@ -457,9 +576,20 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			auto CharSelect_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 
+				if (args_audioPlaySound.isInitialized == false) args_audioPlaySound = ArgSetup((long long)83, (double)0, false); // 83 = snd_alert
+				if (args_selectingGen.isInitialized == false) args_selectingGen = ArgSetup(Self->i_id, "selectingGen");
+				if (args_selectedCharacter.isInitialized == false) args_selectedCharacter = ArgSetup(Self->i_id, "selectedCharacter");
+				if (args_byGenArray.isInitialized == false) args_byGenArray = ArgSetup(Self->i_id, "charListByGen");
+				if (args_randomCharArray.isInitialized == false) args_randomCharArray = ArgSetup(Self->i_id, "randomCharArray");
+				if (args_charSelected.isInitialized == false) args_charSelected = ArgSetup("charSelected");
+				if (args_characterData.isInitialized == false) args_characterData = ArgSetup("characterData");
+				if (args_characterList.isInitialized == false) args_characterList = ArgSetup("characterList");
+				if (args_randomSelectSlot_set.isInitialized == false) args_randomSelectSlot_set = ArgSetup(Self->i_id, "characterList", 0);
+				if (args_selectingGen_set.isInitialized == false) args_selectingGen_set = ArgSetup(Self->i_id, "selectingGen", 0);
+
 				// Get random character map value
 				YYRValue yyrv_characterData;
-				CallBuiltin(yyrv_characterData, "variable_global_get", Self, Other, { "characterData" });
+				variableGlobalGetFunc(&yyrv_characterData, Self, Other, 1, args_characterData.args);
 				if (config.debugEnabled) PrintMessage(CLR_AQUA, "[%s:%d] variable_global_get : characterData", GetFileName(__FILE__).c_str(), __LINE__);
 				YYRValue yyrv_random;
 				CallBuiltin(yyrv_random, "ds_map_find_value", Self, Other, { yyrv_characterData, "random" });
@@ -467,7 +597,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 
 				// Add random character to end of character array
 				YYRValue yyrv_byGenArray;
-				CallBuiltin(yyrv_byGenArray, "variable_instance_get", Self, Other, { (long long)Self->i_id, "charListByGen" });
+				variableInstanceGetFunc(&yyrv_byGenArray, Self, Other, 2, args_byGenArray.args);
 				if (config.debugEnabled) PrintMessage(CLR_AQUA, "[%s:%d] variable_instance_get : charListByGen", GetFileName(__FILE__).c_str(), __LINE__);
 				int yyrv_lastGenIndex = yyrv_byGenArray.RefArray->length - 1;
 				YYRValue yyrv_lastGenArray;
@@ -495,14 +625,15 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				YYRValue yyrv_randomSelectSlotIndex;
 				yyrv_randomSelectSlotIndex.Kind = VALUE_REAL;
 				yyrv_randomSelectSlotIndex.Real = totalChars - 1;
-				YYRValue yyrv_result;
-				CallBuiltin(yyrv_result, "variable_instance_set", Self, Other, { (long long)Self->i_id, "randomSelectSlot", yyrv_randomSelectSlotIndex });
+				YYRValue result;
+				args_randomSelectSlot_set.args[2] = yyrv_randomSelectSlotIndex;
+				variableInstanceSetFunc(&result, Self, Other, 3, args_randomSelectSlot_set.args);
 				if (config.debugEnabled) PrintMessage(CLR_TANGERINE, "[%s:%d] variable_instance_set : \"randomSelectSlot\", yyrv_randomSelectSlotIndex", GetFileName(__FILE__).c_str(), __LINE__);
 
 				// Get character list
 				// ["ame", "gura", "ina", ...]
 				YYRValue yyrv_characterList;
-				CallBuiltin(yyrv_characterList, "variable_global_get", Self, Other, { "characterList" });
+				variableGlobalGetFunc(&yyrv_characterList, Self, Other, 1, args_characterList.args);
 				characterList.clear();
 				for (int i = 0; i < totalChars; i++) {
 					characterList.push_back(std::string(yyrv_characterList.RefArray->m_Array[i].String->Get()));
@@ -531,35 +662,77 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			auto CharSelect_Draw_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 				int marginW = 85;
-				YYRValue yyrv_result;
-				
+				YYRValue result;
+				if (args_drawSetColor.isInitialized == false) {
+					args_drawSetColor = ArgSetup((long long)16777215); // white
+				}
+				if (args_drawSetAlpha.isInitialized == false) {
+					args_drawSetAlpha = ArgSetup((double)1.00);
+				}
+				if (args_blacklist_text.isInitialized == false) {
+					args_blacklist_text = ArgSetup((long long)517, (long long)17, "BLACKLIST");
+				}
+				if (args_blacklistEditing_text.isInitialized == false) {
+					args_blacklistEditing_text = ArgSetup((long long)320, (long long)17, "EDITING BLACKLIST...");
+				}
+				if (args_blacklistError_text.isInitialized == false) {
+					args_blacklistError_text = ArgSetup((long long)320, (long long)17, "ERROR: CAN'T BLACKLIST ALL CHARACTERS!");
+				}
+				if (args_drawRectangle.isInitialized == false) {
+					args_drawRectangle = ArgSetup((long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(33), false);
+				}
 
 				if (blacklistOpen) {
 					// Blacklist Header
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
-					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(33), false });
+					args_drawSetColor.args[0].I64 = 16777215;
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawRectangle.args[0].I64 = (long long)(0 + marginW);
+					args_drawRectangle.args[1].I64 = (long long)(10);
+					args_drawRectangle.args[2].I64 = (long long)(640 - marginW);
+					args_drawRectangle.args[3].I64 = (long long)(33);
+					args_drawRectangle.args[4].I64 = false;
+					drawRectangleFunc(&result, Self, Other, 5, args_drawRectangle.args);
 					// Blacklist Header Text
 					if (blacklistErrorTimer > 0) {
 						blacklistErrorTimer--;
-						CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)255 }); // red
-						CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
-						CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "ERROR: CAN'T BLACKLIST ALL CHARACTERS!" });
+						args_drawSetColor.args[0].I64 = 255; // red
+						drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+						args_drawSetAlpha.args[0].Real = 1.00;
+						drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
+						drawTextFunc(&result, Self, Other, 3, args_blacklistError_text.args);
 					} else {
-						CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16367178 }); // blue 4abef9
-						CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)320, (long long)17, "EDITING BLACKLIST..." });
+						args_drawSetColor.args[0].I64 = 16367178; // blue 4abef9
+						drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+						drawTextFunc(&result, Self, Other, 3, args_blacklistEditing_text.args);
 					}
 					// Blacklist Body
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
-					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
-					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(0 + 34), (long long)(640 - marginW), (long long)(360 - 150), false });
+					args_drawSetColor.args[0].I64 = 0; // black
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawSetAlpha.args[0].Real = 0.25;
+					drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
+					args_drawRectangle.args[0].I64 = (long long)(0 + marginW);
+					args_drawRectangle.args[1].I64 = (long long)(0 + 34);
+					args_drawRectangle.args[2].I64 = (long long)(640 - marginW);
+					args_drawRectangle.args[3].I64 = (long long)(360 - 150);
+					args_drawRectangle.args[4].I64 = false;
+					drawRectangleFunc(&result, Self, Other, 5, args_drawRectangle.args);
 					// Blacklist Body Outline
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
-					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
-					CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, { (long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(360 - 150), true });
+					args_drawSetColor.args[0].I64 = 16777215; // white
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawSetAlpha.args[0].Real = 1.00;
+					drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
+					args_drawRectangle.args[0].I64 = (long long)(0 + marginW);
+					args_drawRectangle.args[1].I64 = (long long)(10);
+					args_drawRectangle.args[2].I64 = (long long)(640 - marginW);
+					args_drawRectangle.args[3].I64 = (long long)(360 - 150);
+					args_drawRectangle.args[4].I64 = true;
+					drawRectangleFunc(&result, Self, Other, 5, args_drawRectangle.args);
 
 					// If current location is a char to be removed, draw sprite at location
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)255 }); // red
-					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.50 });
+					args_drawSetColor.args[0].I64 = 255; // red
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawSetAlpha.args[0].Real = 0.50;
+					drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
 					int charPortHeight = 38;
 					int vertSpacing = 4;
 					int charPortY = 40;
@@ -573,13 +746,12 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 							auto it = std::find(indexesToRemove.begin(), indexesToRemove.end(), overallIndex);
 							if (it != indexesToRemove.end()) {
 								int pushInX = ((6 - genLengths[i]) * 23);
-								CallBuiltin(yyrv_result, "draw_rectangle", Self, Other, {
-									(long long)(((charX + (j * 46)) + 3) + pushInX),
-									(long long)(charPortY + (i * (charPortHeight + vertSpacing))),
-									(long long)(((charX + pushInX) + (j * 46)) + 45),
-									(long long)((charPortY + (i * (charPortHeight + vertSpacing))) + (charPortHeight - 1)),
-									false
-								});
+								args_drawRectangle.args[0].I64 = (long long)(((charX + (j * 46)) + 3) + pushInX);
+								args_drawRectangle.args[1].I64 = (long long)(charPortY + (i * (charPortHeight + vertSpacing)));
+								args_drawRectangle.args[2].I64 = (long long)(((charX + pushInX) + (j * 46)) + 45);
+								args_drawRectangle.args[3].I64 = (long long)((charPortY + (i * (charPortHeight + vertSpacing))) + (charPortHeight - 1));
+								args_drawRectangle.args[4].I64 = false;
+								drawRectangleFunc(&result, Self, Other, 5, args_drawRectangle.args);
 							}
 							overallIndex++;
 						}
@@ -589,17 +761,28 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 
 				if (inCharSelect == true) {
 					// Blacklist Button
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)0 });
-					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)0.25 });
-					CallBuiltin(yyrv_result, "draw_button", Self, Other, { (long long)484, (long long)11, (long long)548, (long long)32, !blacklistSelected });
+					args_drawSetColor.args[0].I64 = 0; // black
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawSetAlpha.args[0].Real = 0.25;
+					drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
+					args_drawRectangle.args[0].I64 = (long long)484;
+					args_drawRectangle.args[1].I64 = (long long)11;
+					args_drawRectangle.args[2].I64 = (long long)548;
+					args_drawRectangle.args[3].I64 = (long long)32;
+					args_drawRectangle.args[4].I64 = !blacklistSelected;
+					drawButtonFunc(&result, Self, Other, 5, args_drawRectangle.args);
 					// Blacklist Button Text
-					CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
-					CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
-					CallBuiltin(yyrv_result, "draw_text", Self, Other, { (long long)517, (long long)17, "BLACKLIST" });
+					args_drawSetColor.args[0].I64 = 16777215; // white
+					drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+					args_drawSetAlpha.args[0].Real = 1.00;
+					drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
+					drawTextFunc(&result, Self, Other, 3, args_blacklist_text.args);
 				}
 
-				CallBuiltin(yyrv_result, "draw_set_color", Self, Other, { (long long)16777215 }); // white
-				CallBuiltin(yyrv_result, "draw_set_alpha", Self, Other, { (double)1.00 });
+				args_drawSetColor.args[0].I64 = 16777215; // white
+				drawSetColorFunc(&result, Self, Other, 1, args_drawSetColor.args);
+				args_drawSetAlpha.args[0].Real = 1.00;
+				drawSetAlphaFunc(&result, Self, Other, 1, args_drawSetAlpha.args);
 			};
 			CharSelect_Draw_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Draw_0;
@@ -694,8 +877,19 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 		PrintMessage(CLR_GREEN, "[%s v%d.%d.%d] - %s loaded successfully!", mod.name, mod.version.major, mod.version.minor, mod.version.build, fileName.c_str());
 	}
 
-	// Function hooks
+	// Function Pointers
 	GetFunctionByName("asset_get_index", assetGetIndexFunc);
+	GetFunctionByName("variable_instance_get", variableInstanceGetFunc);
+	GetFunctionByName("variable_instance_set", variableInstanceSetFunc);
+	GetFunctionByName("variable_global_get", variableGlobalGetFunc);
+	GetFunctionByName("draw_set_alpha", drawSetAlphaFunc);
+	GetFunctionByName("draw_set_color", drawSetColorFunc);
+	GetFunctionByName("draw_rectangle", drawRectangleFunc);
+	GetFunctionByName("draw_button", drawButtonFunc);
+	GetFunctionByName("draw_text", drawTextFunc);
+	GetFunctionByName("audio_play_sound", audioPlaySoundFunc);
+
+	// Function Hooks
 	MH_Initialize();
 	MmGetScriptData(scriptList);
 	
