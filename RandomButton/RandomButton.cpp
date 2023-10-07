@@ -27,12 +27,14 @@ static struct Mod {
 static struct Config {
 	bool debugEnabled = false;
 	std::vector<std::string> blacklist = {};
+	bool useFavorites = false;
 } config;
 
 void to_json(json& j, const Config& c) {
 	j = json{
 		{ "debugEnabled", c.debugEnabled },
-		{ "blacklist", c.blacklist }
+		{ "blacklist", c.blacklist },
+		{ "useFavorites", c.useFavorites }
 	};
 }
 
@@ -40,6 +42,7 @@ void from_json(const json& j, Config& c) {
 	try {
 		j.at("debugEnabled").get_to(c.debugEnabled);
 		j.at("blacklist").get_to(c.blacklist);
+		j.at("useFavorites").get_to(c.useFavorites);
 	} catch (const json::out_of_range& e) {
 		PrintError(__FILE__, __LINE__, "%s", e.what());
 		std::string fileName = formatString(std::string(mod.name)) + "-config.json";
@@ -239,7 +242,7 @@ void Hook(void* NewFunc, void* TargetFuncPointer, void** pfnOriginal, const char
 		else
 			MH_EnableHook(TargetFuncPointer);
 
-		PrintMessage(CLR_GRAY, "- &%s = 0x%p", Name, TargetFuncPointer);
+		if (config.debugEnabled) PrintMessage(CLR_GRAY, "- &%s = 0x%p", Name, TargetFuncPointer);
 	} else {
 		PrintMessage(
 			CLR_RED,
@@ -282,15 +285,14 @@ std::vector<std::string> characterList = {};
 RValue* yyrv_newRandCharArray = nullptr;
 YYRValue yyrv_mouseX;
 YYRValue yyrv_mouseY;
-static bool buttonEntered = false;
-static bool buttonExited = false;
 static bool mouseMoved = false;
 int prev_mouseX = 0;
 int prev_mouseY = 0;
 
 bool SetBlacklist(CInstance* Self, CInstance* Other) {
-	if (indexesToRemove.size() == totalChars - 1) {
-		PrintError(__FILE__, __LINE__, "You can't blacklist all characters!");
+	if (indexesToRemove.size() == static_cast<unsigned long long>(totalChars - 1)) {
+		if (config.useFavorites == true) PrintError(__FILE__, __LINE__, "You can't favorite zero characters!");
+		else PrintError(__FILE__, __LINE__, "You can't blacklist all characters!");
 		return false;
 	}
 
@@ -571,8 +573,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			TitleScreen_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = TitleScreen_Create_0;
-		}
-		else if (_strcmpi(Code->i_pName, "gml_Object_obj_TextController_Create_0") == 0) {
+		} else if (_strcmpi(Code->i_pName, "gml_Object_obj_TextController_Create_0") == 0) {
 			auto TextController_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 				YYRValue yyrv_textContainer;
@@ -592,8 +593,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			TextController_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = TextController_Create_0;
-		}
-		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Create_0") == 0) {
+		} else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Create_0") == 0) {
 			auto CharSelect_Create_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 
@@ -605,7 +605,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 				if (args_charSelected.isInitialized == false) args_charSelected = ArgSetup("charSelected");
 				if (args_characterData.isInitialized == false) args_characterData = ArgSetup("characterData");
 				if (args_characterList.isInitialized == false) args_characterList = ArgSetup("characterList");
-				if (args_randomSelectSlot_set.isInitialized == false) args_randomSelectSlot_set = ArgSetup(Self->i_id, "characterList", 0);
+				if (args_randomSelectSlot_set.isInitialized == false) args_randomSelectSlot_set = ArgSetup(Self->i_id, "randomSelectSlot", 0);
 				if (args_selectingGen_set.isInitialized == false) args_selectingGen_set = ArgSetup(Self->i_id, "selectingGen", 0);
 				if (args_deviceMouse.isInitialized == false) args_deviceMouse = ArgSetup((double)0);
 				if (args_checkButtonPressed.isInitialized == false) args_checkButtonPressed = ArgSetup((double)0, (double)1);
@@ -645,9 +645,10 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 					totalChars += genLength;
 					genLengths.push_back(genLength);
 				}
+
 				YYRValue yyrv_randomSelectSlotIndex;
 				yyrv_randomSelectSlotIndex.Kind = VALUE_REAL;
-				yyrv_randomSelectSlotIndex.Real = totalChars - 1;
+				yyrv_randomSelectSlotIndex.Real = (double)(totalChars - 1);
 				YYRValue result;
 				args_randomSelectSlot_set.args[2] = yyrv_randomSelectSlotIndex;
 				variableInstanceSetFunc(&result, Self, Other, 3, args_randomSelectSlot_set.args);
@@ -680,8 +681,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			CharSelect_Create_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Create_0;
-		}
-		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Step_0") == 0) {
+		} else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Step_0") == 0) {
 			auto CharSelect_Step_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 				deviceMouseXToGUIFunc(&yyrv_mouseX, Self, Other, 1, args_deviceMouse.args);
@@ -734,8 +734,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			CharSelect_Step_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Step_0;
-		}
-		else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {	// 640x360 viewport size
+		} else if (_strcmpi(Code->i_pName, "gml_Object_obj_CharSelect_Draw_0") == 0) {	// 640x360 viewport size
 			auto CharSelect_Draw_0 = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 				int marginW = 85;
@@ -747,13 +746,16 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 					args_drawSetAlpha = ArgSetup((double)1.00);
 				}
 				if (args_blacklist_text.isInitialized == false) {
-					args_blacklist_text = ArgSetup((long long)517, (long long)17, "BLACKLIST");
+					if (config.useFavorites == true) args_blacklist_text = ArgSetup((long long)517, (long long)17, "FAVORITES");
+					else args_blacklist_text = ArgSetup((long long)517, (long long)17, "BLACKLIST");
 				}
 				if (args_blacklistEditing_text.isInitialized == false) {
-					args_blacklistEditing_text = ArgSetup((long long)320, (long long)17, "EDITING BLACKLIST...");
+					if (config.useFavorites == true) args_blacklistEditing_text = ArgSetup((long long)320, (long long)17, "EDITING FAVORITES...");
+					else args_blacklistEditing_text = ArgSetup((long long)320, (long long)17, "EDITING BLACKLIST...");
 				}
 				if (args_blacklistError_text.isInitialized == false) {
-					args_blacklistError_text = ArgSetup((long long)320, (long long)17, "ERROR: CAN'T BLACKLIST ALL CHARACTERS!");
+					if (config.useFavorites == true) args_blacklistError_text = ArgSetup((long long)320, (long long)17, "ERROR: CAN'T FAVORITE ZERO CHARACTERS!");
+					else args_blacklistError_text = ArgSetup((long long)320, (long long)17, "ERROR: CAN'T BLACKLIST ALL CHARACTERS!");
 				}
 				if (args_drawRectangle.isInitialized == false) {
 					args_drawRectangle = ArgSetup((long long)(0 + marginW), (long long)(10), (long long)(640 - marginW), (long long)(33), false);
@@ -833,7 +835,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 							overallIndex++;
 						}
 					}
-					
+
 				}
 
 				if (inCharSelect == true) {
@@ -863,9 +865,7 @@ YYTKStatus CodeCallback(YYTKEventBase* pEvent, void* OptionalArgument) {
 			};
 			CharSelect_Draw_0(pCodeEvent, Self, Other, Code, Res, Flags);
 			codeFuncTable[Code->i_CodeIndex] = CharSelect_Draw_0;
-		}
-		else
-		{
+		} else {
 			auto UnmodifiedFunc = [](YYTKCodeEvent* pCodeEvent, CInstance* Self, CInstance* Other, CCode* Code, RValue* Res, int Flags) {
 				CallOriginal(pCodeEvent, Self, Other, Code, Res, Flags);
 			};
@@ -972,7 +972,7 @@ DllExport YYTKStatus PluginEntry(YYTKPlugin* PluginObject) {
 	// Function Hooks
 	MH_Initialize();
 	MmGetScriptData(scriptList);
-	
+
 	HookScriptFunction("gml_Script_Up_gml_Object_obj_CharSelect_Create_0", (void*)&UpCharSelectFuncDetour, (void**)&origUpCharSelectScript);
 	HookScriptFunction("gml_Script_Down_gml_Object_obj_CharSelect_Create_0", (void*)&DownCharSelectFuncDetour, (void**)&origDownCharSelectScript);
 	HookScriptFunction("gml_Script_Left_gml_Object_obj_CharSelect_Create_0", (void*)&LeftCharSelectFuncDetour, (void**)&origLeftCharSelectScript);
