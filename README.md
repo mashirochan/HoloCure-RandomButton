@@ -2,6 +2,7 @@
 A HoloCure mod that adds back the random character button!
 
 ![Example Screenshot](https://github.com/mashirochan/HoloCure-RandomButton/blob/de5a312a468a71780ec9020bb0197ac9f1d856d1/Random%20Button%20Example.gif)
+![Blacklist Example](https://github.com/mashirochan/HoloCure-RandomButton/blob/c53c972cd36bb615c1ae283a5f6b42e25a8d2269/Blacklist%20Example.gif)
 
 # Installation
 
