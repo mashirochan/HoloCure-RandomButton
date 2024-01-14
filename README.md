@@ -6,23 +6,19 @@ A HoloCure mod that adds back the random character button!
 
 # Installation
 
-Regarding the YYToolkit Launcher:
-
-It's a launcher used to inject .dlls, so most anti-virus will be quick to flag it with Trojan-like behavior because of a similar use-case. The launcher is entirely open source (as is YYToolkit itself, the backbone of the project), so you're more than welcome to build everything yourself from the source: https://github.com/Archie-osu/YYToolkit/
-
-- Download the .dll file from the latest release of my [Random Button mod](https://github.com/mashirochan/HoloCure-RandomButton/releases/latest)
-- Download `Launcher.exe` from the [latest release of YYToolkit](https://github.com/Archie-osu/YYToolkit/releases/latest)
-  - Place the `Launcher.exe` file anywhere you want for convenient access
-- Open the folder your `HoloCure.exe` is in
-  - Back up your game and save data while you're here!
-  - Delete, rename, or move `steam_api64.dll` and `Steamworks_x64.dll` if you're on Steam
-- Run the `Launcher.exe`
-  - Click "Select" next to the Runner field
-    - Select your `HoloCure.exe` (wherever it is)
-  - Click "Open plugin folder" near the bottom right
-    - This should create and open the `autoexec` folder wherever your `HoloCure.exe` is
-    - Move or copy your `random-button-vX.X.X.dll` file into this folder
-  - Click "Start process"
+- Download the `RandomButton.dll` file from the latest release of my [Random Button mod](https://github.com/mashirochan/HoloCure-RandomButton/releases/latest)
+- Download the `InfiCore.dll` file from the latest release of my [InfiCore mod](https://github.com/mashirochan/HoloCure-InfiCore/releases/latest)
+- Download the `CallbackManagerMod.dll` file from the latest release of PippleCultist's [Callback Manager mod](https://github.com/PippleCultist/CallbackManagerMod/releases/latest)
+- Download `AurieManager.exe` from the [latest release of Aurie](https://github.com/AurieFramework/Aurie/releases/latest)
+- (OPTIONAL) Open up `%localappdata%\HoloCure` in your File Explorer
+  - Back up your save data!
+- Run the `AurieManager.exe`
+  - Click "Add Game" next to the game drop-down
+    - Select your `HoloCure.exe` file
+  - Click "Install Aurie" in the bottom right
+  - Click "Add Mods" on the right
+    - Select your `RandomButton.dll`, `InfiCore.dll`, and `CallbackManagerMod.dll` files
+  - Click "Play Game"
     - Hope with all your might that it works!
 
 Not much testing at all has gone into this, so I'm really sorry if this doesn't work. Use at your own risk!
